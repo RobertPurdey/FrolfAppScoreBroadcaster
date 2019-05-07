@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SqlClient;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -54,17 +55,20 @@ namespace TcpListenerTest
                     var tokenSizeMsg = GetMessage(stream, 4);
                     var tokenSize = Convert.ToInt32(tokenSizeMsg);
                     Console.WriteLine("Token Size: " + tokenSize + "B");
+                    Console.WriteLine();
 
                     // read API key
                     var apiKeyMsg = GetMessage(stream, tokenSize);
                     int a = 1;
                     Console.WriteLine("Token: " + apiKeyMsg);
+                    Console.WriteLine();
 
                     // decrypt api key
 
 
                     // validate user exists
-
+                    Console.WriteLine("ID found: " + RetrieveRequesterEntity());
+                    Console.WriteLine();
 
                     // read command (Spectate or Announce)
                     var commandMsg = GetMessage(stream, 10);
@@ -86,22 +90,65 @@ namespace TcpListenerTest
                 // add newly announced game to list
                 // close con if cant announce
             }
+
+            private static Guid RetrieveRequesterEntity()
+            {
+                Guid foundId = default(Guid);
+                try
+                {
+                    SqlConnectionStringBuilder connBuilder = new SqlConnectionStringBuilder();
+
+                    connBuilder.DataSource      = "-";
+                    connBuilder.UserID          = "-";
+                    connBuilder.Password        = "-";
+                    connBuilder.InitialCatalog  = "-";
+
+                    using (SqlConnection connection = new SqlConnection(connBuilder.ConnectionString))
+                    {
+                        connection.Open();
+
+                        StringBuilder strBuilder = new StringBuilder();
+                        strBuilder.Append("SELECT u.id as id ");
+                        strBuilder.Append("FROM [dbo].[app_user] as u ");
+                        strBuilder.Append("WHERE u.id = '-'");
+                        
+                        string cmdText = strBuilder.ToString();
+
+                        using (SqlCommand sqlCmd = new SqlCommand(cmdText, connection))
+                        {
+                            using (SqlDataReader sqlReader = sqlCmd.ExecuteReader())
+                            {
+                                while (sqlReader.Read())
+                                {
+                                    foundId = sqlReader.GetGuid(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (SqlException e)
+                {
+                    Console.WriteLine(e.InnerException);
+                }
+
+                return foundId;
+            }
         }
 
         class TcpHelper
         {
             private static TcpListener listener { get; set; }
             private static bool accept { get; set; } = false;
-
+            private static string ipAddress = "192.168.1.101";
             public static void StartServer()
             {
-                IPAddress address = IPAddress.Parse("192.168.1.66");
+                IPAddress address = IPAddress.Parse(ipAddress);
                 listener = new TcpListener(address, 45000);
 
                 listener.Start();
                 accept = true;
 
-                Console.WriteLine($"Server started. Listening to TCP clients at 192.168.1.66:45000");
+                Console.WriteLine($"Server started. Listening to TCP clients at {ipAddress}");
 
                 Listen();
             }
