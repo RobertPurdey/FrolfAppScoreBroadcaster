@@ -1,7 +1,10 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -45,13 +48,13 @@ namespace TcpListenerTest
                 return Encoding.ASCII.GetString(message);
             }
 
-            public static void ValidateClient(TcpClient newClient)
+            public static async void ValidateClient(TcpClient newClient)
             {
                 var buffer = new byte[1024];
 
                 using (var stream = newClient.GetStream())
                 {
-                    // read the size of the api key being sent (the size will always be contained to 20 bytes) size is written in bytes)
+                    // read the size of the api key being sent (the size will always be contained to 4 bytes) size is written in bytes)
                     var tokenSizeMsg = GetMessage(stream, 4);
                     var tokenSize = Convert.ToInt32(tokenSizeMsg);
                     Console.WriteLine("Token Size: " + tokenSize + "B");
@@ -59,24 +62,35 @@ namespace TcpListenerTest
 
                     // read API key
                     var apiKeyMsg = GetMessage(stream, tokenSize);
-                    int a = 1;
                     Console.WriteLine("Token: " + apiKeyMsg);
                     Console.WriteLine();
 
-                    // decrypt api key
+                    // validate API key
+                    var isValid     = await CheckValidAsync("api/appusers/allowedBroadcastAccess", apiKeyMsg);
+                    var validMsg    = isValid ? "YES" : "NO";
 
-
-                    // validate user exists
-                    Console.WriteLine("ID found: " + RetrieveRequesterEntity());
+                    Console.WriteLine("Token valid? " + validMsg);
                     Console.WriteLine();
 
                     // read command (Spectate or Announce)
                     var commandMsg = GetMessage(stream, 10);
-                    var command = commandMsg.TrimStart('-');
+                    var command    = commandMsg.TrimStart('-');
                     Console.WriteLine(command);
+
+                    // make api call to validate the user can spectate/announce token
+                    // todo: validate command (use enum)?
+                    //var isValid     = await CheckValidAsync("allowedBroadcastAccess", apiKeyMsg);
+                    //var validMsg    = isValid ? "VALID" : "NOT VALID";
+
+                   // Console.WriteLine(command + " command " + validMsg);
+                    //Console.WriteLine();
+
+                    // todo: we wont have to do this dumb shit anymore (using api)-- validate user exists
+                    Console.WriteLine("ID found: " + RetrieveRequesterEntity());
+                    Console.WriteLine();
                 }
 
-                // read API key
+                // read API keydi
                 // decrypt api key
                 // validate user exists
                 // read command (Spectate or Announce)
@@ -90,6 +104,26 @@ namespace TcpListenerTest
                 // add newly announced game to list
                 // close con if cant announce
             }
+            
+            private static async Task<bool> CheckValidAsync(string command, string token)
+            {
+                var apiPath  = "http://192.168.1.101:53740/" + command;                
+                var isValid  = false;
+
+                using ( var request = new HttpRequestMessage(HttpMethod.Get, apiPath) )
+                using ( var client  = new HttpClient() )
+                {
+                    client.DefaultRequestHeaders.Authorization   = new AuthenticationHeaderValue("Bearer", token);
+                    HttpResponseMessage response                 = await client.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        isValid = JsonConvert.DeserializeObject<bool>(await response.Content.ReadAsStringAsync());
+                    }
+                }
+
+                return isValid;
+            }
 
             private static Guid RetrieveRequesterEntity()
             {
@@ -98,10 +132,10 @@ namespace TcpListenerTest
                 {
                     SqlConnectionStringBuilder connBuilder = new SqlConnectionStringBuilder();
 
-                    connBuilder.DataSource      = "-";
-                    connBuilder.UserID          = "-";
-                    connBuilder.Password        = "-";
-                    connBuilder.InitialCatalog  = "-";
+                    connBuilder.DataSource = "DESKTOP-AEISIBB\\SQLEXPRESS";
+                    connBuilder.UserID = "sa";
+                    connBuilder.Password = "tHu55er123";
+                    connBuilder.InitialCatalog = "frolf.3.dev";
 
                     using (SqlConnection connection = new SqlConnection(connBuilder.ConnectionString))
                     {
@@ -110,8 +144,8 @@ namespace TcpListenerTest
                         StringBuilder strBuilder = new StringBuilder();
                         strBuilder.Append("SELECT u.id as id ");
                         strBuilder.Append("FROM [dbo].[app_user] as u ");
-                        strBuilder.Append("WHERE u.id = '-'");
-                        
+                        strBuilder.Append("WHERE u.id = 'f9968023-583c-4962-ae94-dca322755069'");
+
                         string cmdText = strBuilder.ToString();
 
                         using (SqlCommand sqlCmd = new SqlCommand(cmdText, connection))
@@ -133,6 +167,7 @@ namespace TcpListenerTest
 
                 return foundId;
             }
+
         }
 
         class TcpHelper
