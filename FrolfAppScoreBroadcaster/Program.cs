@@ -14,7 +14,11 @@ namespace TcpListenerTest
 {
     class Program
     {
-        static Dictionary<Guid, HashSet<Spectator>> gameViewings = new Dictionary<Guid, HashSet<Spectator>>();
+        static Dictionary<Guid, HashSet<Spectator>> gameSpectators = new Dictionary<Guid, HashSet<Spectator>>();
+        static Dictionary<Guid, HashSet<Announcer>> gameAnnouncers = new Dictionary<Guid, HashSet<Announcer>>();
+
+        static HashSet<string> commands = new HashSet<string>() { "SPECTATE", "ANNOUNNCE" };
+
 
         static void Main(string[] args)
         {
@@ -66,23 +70,66 @@ namespace TcpListenerTest
                     Console.WriteLine();
 
                     // validate API key
-                    var isValid     = await CheckValidAsync("api/appusers/allowedBroadcastAccess", apiKeyMsg);
-                    var validMsg    = isValid ? "YES" : "NO";
+                    var isKeyValid  = await CheckValidApiKey("api/appusers/allowedBroadcastAccess", apiKeyMsg);
+                    var validMsg    = isKeyValid ? "YES" : "NO";
 
                     Console.WriteLine("Token valid? " + validMsg);
                     Console.WriteLine();
+
+                    // Deny client for invalid key
+                    if ( !isKeyValid)
+                    {
+                        TrashClient(newClient);
+                        return;
+                    }
 
                     // read command (Spectate or Announce)
                     var commandMsg = GetMessage(stream, 10);
                     var command    = commandMsg.TrimStart('-');
                     Console.WriteLine(command);
 
+                    var isCommandValid = IsCommandValid(command);
+
+                    // Deny client for invalid command
+                    if ( !isCommandValid)
+                    {
+                        TrashClient(newClient);
+                        return;
+                    }
+
+                    // Read and verify command for the game Validate user can do command
+                    Guid gameId = default(Guid);
+
+                    // dont let console crash due to message not recevied as guid
+                    try { 
+                        gameId = new Guid(GetMessage(stream, 16) );
+                    } catch (Exception ex)
+                    {
+                        // todo: log this
+                        Console.WriteLine("FAILED TO PARSE GUID MSG!");
+                        TrashClient(newClient);
+                        return;
+
+                    }
+
+                    var canHandleCommand = await CanCommandBeHandled(command, apiKeyMsg, gameId);
+
+                    // Deny client for not being allowed to spectate/announce the game
+                    if ( !canHandleCommand )
+                    {
+                        TrashClient(newClient);
+                        return;
+                    }
+
+                    // set client to appropriate command
+                    
+
                     // make api call to validate the user can spectate/announce token
                     // todo: validate command (use enum)?
                     //var isValid     = await CheckValidAsync("allowedBroadcastAccess", apiKeyMsg);
                     //var validMsg    = isValid ? "VALID" : "NOT VALID";
 
-                   // Console.WriteLine(command + " command " + validMsg);
+                    // Console.WriteLine(command + " command " + validMsg);
                     //Console.WriteLine();
 
                     // todo: we wont have to do this dumb shit anymore (using api)-- validate user exists
@@ -105,9 +152,40 @@ namespace TcpListenerTest
                 // close con if cant announce
             }
             
-            private static async Task<bool> CheckValidAsync(string command, string token)
+            private static void AddClient(string command, TcpClient client, Guid guid)
             {
-                var apiPath  = "http://192.168.1.101:53740/" + command;                
+                if (command == "SPECTATE")
+                {
+                    lock (gameSpectators)
+                    {
+                        var newSpec = new Spectator(client);
+
+                        if (gameSpectators.ContainsKey(guid))
+                        {
+                            var specators = gameSpectators[guid];
+                            specators.Add(newSpec);
+                        }
+                        else
+                        {
+                            gameSpectators.Add( guid, new HashSet<Spectator>(){ newSpec } );
+                        }
+                    }
+                }
+                else if (command == "ANNOUNCE")
+                {
+
+                }
+            }
+
+            private static bool IsCommandValid(string command)
+            {
+                return commands.Contains(command);
+            }
+
+            // todo: need some sort of generic request class
+            private static async Task<bool> CheckValidApiKey(string command, string token)
+            {
+                var apiPath  = "http://192.168.1.101:53740/api/appusers/" + command;                
                 var isValid  = false;
 
                 using ( var request = new HttpRequestMessage(HttpMethod.Get, apiPath) )
@@ -123,6 +201,33 @@ namespace TcpListenerTest
                 }
 
                 return isValid;
+            }
+
+            private static async Task<bool> CanCommandBeHandled(string command, string token, Guid gameId)
+            {
+                var apiPath = "http://192.168.1.101:53740/" + command;
+                var isValid = false;
+
+                using (var request = new HttpRequestMessage(HttpMethod.Get, apiPath))
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Authorization   = new AuthenticationHeaderValue("Bearer", token);
+                    request.Content                              = new StringContent(gameId.ToString());
+                    HttpResponseMessage response                 = await client.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        isValid = JsonConvert.DeserializeObject<bool>(await response.Content.ReadAsStringAsync());
+                    }
+                }
+
+                return isValid;
+            }
+
+            private static void TrashClient(TcpClient client)
+            {
+                client.GetStream().Close();
+                client.Close();
             }
 
             private static Guid RetrieveRequesterEntity()
@@ -249,6 +354,13 @@ namespace TcpListenerTest
             Guid userId;
             string publicKey;
             TcpClient client;
+
+            public Spectator() { }
+
+            public Spectator(TcpClient client)
+            {
+                this.client = client;
+            }
 
             public Task SendGameUpdate(string gameUpdate)
             {
