@@ -70,7 +70,7 @@ namespace TcpListenerTest
                     Console.WriteLine();
 
                     // validate API key
-                    var isKeyValid  = await CheckValidApiKey("api/appusers/allowedBroadcastAccess", apiKeyMsg);
+                    var isKeyValid  = await CheckValidApiKey("allowedBroadcastAccess", apiKeyMsg);
                     var validMsg    = isKeyValid ? "YES" : "NO";
 
                     Console.WriteLine("Token valid? " + validMsg);
@@ -91,7 +91,7 @@ namespace TcpListenerTest
                     var isCommandValid = IsCommandValid(command);
 
                     // Deny client for invalid command
-                    if ( !isCommandValid)
+                    if ( !isCommandValid )
                     {
                         TrashClient(newClient);
                         return;
@@ -102,7 +102,7 @@ namespace TcpListenerTest
 
                     // dont let console crash due to message not recevied as guid
                     try { 
-                        gameId = new Guid(GetMessage(stream, 16) );
+                        gameId = new Guid(GetMessage(stream, 36) );
                     } catch (Exception ex)
                     {
                         // todo: log this
@@ -113,6 +113,10 @@ namespace TcpListenerTest
                     }
 
                     var canHandleCommand = await CanCommandBeHandled(command, apiKeyMsg, gameId);
+                    var validCommand     = canHandleCommand ? "YES" : "NO";
+
+                    Console.WriteLine("Command valid for game? " + validMsg);
+                    Console.WriteLine();
 
                     // Deny client for not being allowed to spectate/announce the game
                     if ( !canHandleCommand )
