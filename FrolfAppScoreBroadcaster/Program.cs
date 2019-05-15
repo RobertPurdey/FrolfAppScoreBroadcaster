@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -9,6 +10,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace TcpListenerTest
 {
@@ -106,16 +108,16 @@ namespace TcpListenerTest
                     } catch (Exception ex)
                     {
                         // todo: log this
-                        Console.WriteLine("FAILED TO PARSE GUID MSG!");
+                        Console.WriteLine("FAILED TO PARSE GAME GUID MSG!");
                         TrashClient(newClient);
                         return;
 
                     }
 
                     var canHandleCommand = await CanCommandBeHandled(command, apiKeyMsg, gameId);
-                    var validCommand     = canHandleCommand ? "YES" : "NO";
+                    var validCommandMsg  = canHandleCommand ? "YES" : "NO";
 
-                    Console.WriteLine("Command valid for game? " + validMsg);
+                    Console.WriteLine("Command valid for game? " + validCommandMsg );
                     Console.WriteLine();
 
                     // Deny client for not being allowed to spectate/announce the game
@@ -125,8 +127,25 @@ namespace TcpListenerTest
                         return;
                     }
 
+                    // Read and verify command for the game Validate user can do command
+                    Guid userId = default(Guid);
+
+                    // dont let console crash due to message not recevied as guid
+                    try
+                    {
+                        userId = new Guid(GetMessage(stream, 36));
+                    }
+                    catch (Exception ex)
+                    {
+                        // todo: log this
+                        Console.WriteLine("FAILED TO PARSE USER GUID MSG!");
+                        TrashClient(newClient);
+                        return;
+
+                    }
+
                     // set client to appropriate command
-                    
+                    AddClient(command, newClient, gameId, userId);
 
                     // make api call to validate the user can spectate/announce token
                     // todo: validate command (use enum)?
@@ -135,10 +154,6 @@ namespace TcpListenerTest
 
                     // Console.WriteLine(command + " command " + validMsg);
                     //Console.WriteLine();
-
-                    // todo: we wont have to do this dumb shit anymore (using api)-- validate user exists
-                    Console.WriteLine("ID found: " + RetrieveRequesterEntity());
-                    Console.WriteLine();
                 }
 
                 // read API keydi
@@ -156,23 +171,29 @@ namespace TcpListenerTest
                 // close con if cant announce
             }
             
-            private static void AddClient(string command, TcpClient client, Guid guid)
+            // todo make this an object that is passed rather than prams
+            private static void AddClient(string command, TcpClient client, Guid gameId, Guid userId)
             {
                 if (command == "SPECTATE")
                 {
                     lock (gameSpectators)
                     {
-                        var newSpec = new Spectator(client);
+                        var newSpec = new Spectator(client, userId);
 
-                        if (gameSpectators.ContainsKey(guid))
+                        if (gameSpectators.ContainsKey(gameId))
                         {
-                            var specators = gameSpectators[guid];
+                            var specators = gameSpectators[gameId];
+
+                            // remove lingering spectator, may need to do a proper reconnect
+                            specators.RemoveWhere(spec => spec.userId == userId);
                             specators.Add(newSpec);
                         }
                         else
                         {
-                            gameSpectators.Add( guid, new HashSet<Spectator>(){ newSpec } );
+                            gameSpectators.Add(gameId, new HashSet<Spectator>(){ newSpec } );
                         }
+
+                        Console.WriteLine("Added Spec!");
                     }
                 }
                 else if (command == "ANNOUNCE")
@@ -209,15 +230,14 @@ namespace TcpListenerTest
 
             private static async Task<bool> CanCommandBeHandled(string command, string token, Guid gameId)
             {
-                var apiPath = "http://192.168.1.101:53740/" + command;
+                var apiPath = "http://192.168.1.101:53740/api/games/" + gameId + "/" + command;
                 var isValid = false;
 
                 using (var request = new HttpRequestMessage(HttpMethod.Get, apiPath))
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.Authorization   = new AuthenticationHeaderValue("Bearer", token);
-                    request.Content                              = new StringContent(gameId.ToString());
-                    HttpResponseMessage response                 = await client.SendAsync(request);
+                    client.DefaultRequestHeaders.Authorization  = new AuthenticationHeaderValue("Bearer", token);
+                    HttpResponseMessage response                = await client.SendAsync(request);
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -355,15 +375,16 @@ namespace TcpListenerTest
 
         class Spectator
         {
-            Guid userId;
+            public Guid userId { get; private set; }
             string publicKey;
             TcpClient client;
 
             public Spectator() { }
 
-            public Spectator(TcpClient client)
+            public Spectator(TcpClient client, Guid userGuid)
             {
                 this.client = client;
+                this.userId = userGuid;
             }
 
             public Task SendGameUpdate(string gameUpdate)
