@@ -182,11 +182,11 @@ namespace TcpListenerTest
 
                         if (gameSpectators.ContainsKey(gameId))
                         {
-                            var specators = gameSpectators[gameId];
+                            var spectators = gameSpectators[gameId];
 
                             // remove lingering spectator, may need to do a proper reconnect
-                            specators.RemoveWhere(spec => spec.userId == userId);
-                            specators.Add(newSpec);
+                            spectators.RemoveWhere(spec => spec.userId == userId);
+                            spectators.Add(newSpec);
                         }
                         else
                         {
@@ -252,51 +252,7 @@ namespace TcpListenerTest
             {
                 client.GetStream().Close();
                 client.Close();
-            }
-
-            private static Guid RetrieveRequesterEntity()
-            {
-                Guid foundId = default(Guid);
-                try
-                {
-                    SqlConnectionStringBuilder connBuilder = new SqlConnectionStringBuilder();
-
-                    connBuilder.DataSource = "DESKTOP-AEISIBB\\SQLEXPRESS";
-                    connBuilder.UserID = "sa";
-                    connBuilder.Password = "tHu55er123";
-                    connBuilder.InitialCatalog = "frolf.3.dev";
-
-                    using (SqlConnection connection = new SqlConnection(connBuilder.ConnectionString))
-                    {
-                        connection.Open();
-
-                        StringBuilder strBuilder = new StringBuilder();
-                        strBuilder.Append("SELECT u.id as id ");
-                        strBuilder.Append("FROM [dbo].[app_user] as u ");
-                        strBuilder.Append("WHERE u.id = 'f9968023-583c-4962-ae94-dca322755069'");
-
-                        string cmdText = strBuilder.ToString();
-
-                        using (SqlCommand sqlCmd = new SqlCommand(cmdText, connection))
-                        {
-                            using (SqlDataReader sqlReader = sqlCmd.ExecuteReader())
-                            {
-                                while (sqlReader.Read())
-                                {
-                                    foundId = sqlReader.GetGuid(0);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (SqlException e)
-                {
-                    Console.WriteLine(e.InnerException);
-                }
-
-                return foundId;
-            }
-
+            }         
         }
 
         class TcpHelper
