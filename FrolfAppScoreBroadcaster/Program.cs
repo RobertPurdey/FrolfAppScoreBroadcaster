@@ -16,10 +16,9 @@ namespace TcpListenerTest
 {
     class Program
     {
-        static Dictionary<Guid, HashSet<Spectator>> gameSpectators = new Dictionary<Guid, HashSet<Spectator>>();
-        static Dictionary<Guid, HashSet<Announcer>> gameAnnouncers = new Dictionary<Guid, HashSet<Announcer>>();
+        static Dictionary<Guid, Announcer> gameAnnouncers = new Dictionary<Guid, Announcer>();
 
-        static HashSet<string> commands = new HashSet<string>() { "SPECTATE", "ANNOUNNCE" };
+        static HashSet<string> commands = new HashSet<string>() { "SPECTATE", "ANNOUNCE" };
 
 
         static void Main(string[] args)
@@ -35,6 +34,24 @@ namespace TcpListenerTest
             // Start the server  
             Thread listeningThread = new Thread(TcpHelper.StartServer);
             listeningThread.Start();
+        }
+
+        public static class MessageReceive
+        {
+            public static string GetMessage(NetworkStream stream, int size)
+            {
+                if (stream == null) throw new ArgumentNullException("stream");
+
+                var bytesRead   = 0;
+                var message     = new byte[size];
+
+                while (bytesRead < size)
+                {
+                    bytesRead += stream.Read(message, bytesRead, size - bytesRead);
+                }
+
+                return Encoding.ASCII.GetString(message);
+            }
         }
 
         class ClientValidator
@@ -57,118 +74,94 @@ namespace TcpListenerTest
             public static async void ValidateClient(TcpClient newClient)
             {
                 var buffer = new byte[1024];
+                var stream = newClient.GetStream();
 
-                using (var stream = newClient.GetStream())
+                // read the size of the api key being sent (the size will always be contained to 4 bytes) size is written in bytes)
+                var tokenSizeMsg = GetMessage(stream, 4);
+                var tokenSize = Convert.ToInt32(tokenSizeMsg);
+                Console.WriteLine("Token Size: " + tokenSize + "B");
+                Console.WriteLine();
+
+                // read API key
+                var apiKeyMsg = GetMessage(stream, tokenSize);
+                Console.WriteLine("Token: " + apiKeyMsg);
+                Console.WriteLine();
+
+                // validate API key
+                var isKeyValid  = await CheckValidApiKey("allowedBroadcastAccess", apiKeyMsg);
+                var validMsg    = isKeyValid ? "YES" : "NO";
+
+                Console.WriteLine("Token valid? " + validMsg);
+                Console.WriteLine();
+
+                // Deny client for invalid key
+                if ( !isKeyValid)
                 {
-                    // read the size of the api key being sent (the size will always be contained to 4 bytes) size is written in bytes)
-                    var tokenSizeMsg = GetMessage(stream, 4);
-                    var tokenSize = Convert.ToInt32(tokenSizeMsg);
-                    Console.WriteLine("Token Size: " + tokenSize + "B");
-                    Console.WriteLine();
-
-                    // read API key
-                    var apiKeyMsg = GetMessage(stream, tokenSize);
-                    Console.WriteLine("Token: " + apiKeyMsg);
-                    Console.WriteLine();
-
-                    // validate API key
-                    var isKeyValid  = await CheckValidApiKey("allowedBroadcastAccess", apiKeyMsg);
-                    var validMsg    = isKeyValid ? "YES" : "NO";
-
-                    Console.WriteLine("Token valid? " + validMsg);
-                    Console.WriteLine();
-
-                    // Deny client for invalid key
-                    if ( !isKeyValid)
-                    {
-                        TrashClient(newClient);
-                        return;
-                    }
-
-                    // read command (Spectate or Announce)
-                    var commandMsg = GetMessage(stream, 10);
-                    var command    = commandMsg.TrimStart('-');
-                    Console.WriteLine(command);
-
-                    var isCommandValid = IsCommandValid(command);
-
-                    // Deny client for invalid command
-                    if ( !isCommandValid )
-                    {
-                        TrashClient(newClient);
-                        return;
-                    }
-
-                    // Read and verify command for the game Validate user can do command
-                    Guid gameId = default(Guid);
-
-                    // dont let console crash due to message not recevied as guid
-                    try { 
-                        gameId = new Guid(GetMessage(stream, 36) );
-                    } catch (Exception ex)
-                    {
-                        // todo: log this
-                        Console.WriteLine("FAILED TO PARSE GAME GUID MSG!");
-                        TrashClient(newClient);
-                        return;
-
-                    }
-
-                    var canHandleCommand = await CanCommandBeHandled(command, apiKeyMsg, gameId);
-                    var validCommandMsg  = canHandleCommand ? "YES" : "NO";
-
-                    Console.WriteLine("Command valid for game? " + validCommandMsg );
-                    Console.WriteLine();
-
-                    // Deny client for not being allowed to spectate/announce the game
-                    if ( !canHandleCommand )
-                    {
-                        TrashClient(newClient);
-                        return;
-                    }
-
-                    // Read and verify command for the game Validate user can do command
-                    Guid userId = default(Guid);
-
-                    // dont let console crash due to message not recevied as guid
-                    try
-                    {
-                        userId = new Guid(GetMessage(stream, 36));
-                    }
-                    catch (Exception ex)
-                    {
-                        // todo: log this
-                        Console.WriteLine("FAILED TO PARSE USER GUID MSG!");
-                        TrashClient(newClient);
-                        return;
-
-                    }
-
-                    // set client to appropriate command
-                    AddClient(command, newClient, gameId, userId);
-
-                    // make api call to validate the user can spectate/announce token
-                    // todo: validate command (use enum)?
-                    //var isValid     = await CheckValidAsync("allowedBroadcastAccess", apiKeyMsg);
-                    //var validMsg    = isValid ? "VALID" : "NOT VALID";
-
-                    // Console.WriteLine(command + " command " + validMsg);
-                    //Console.WriteLine();
+                    TrashClient(newClient);
+                    return;
                 }
 
-                // read API keydi
-                // decrypt api key
-                // validate user exists
                 // read command (Spectate or Announce)
-                // if Spectate
-                // if can spectate
-                // add to spectate list if it is being announced, otherwise close con
-                // close con if cant spectate
+                var commandMsg = GetMessage(stream, 10);
+                var command    = commandMsg.TrimStart('-');
+                Console.WriteLine(command);
 
-                // if Announce
-                // if can announce
-                // add newly announced game to list
-                // close con if cant announce
+                var isCommandValid = IsCommandValid(command);
+
+                // Deny client for invalid command
+                if ( !isCommandValid )
+                {
+                    TrashClient(newClient);
+                    return;
+                }
+
+                // Read and verify command for the game Validate user can do command
+                Guid gameId = default(Guid);
+
+                // dont let console crash due to message not recevied as guid
+                try { 
+                    gameId = new Guid(GetMessage(stream, 36) );
+                } catch (Exception ex)
+                {
+                    // todo: log this
+                    Console.WriteLine("FAILED TO PARSE GAME GUID MSG!");
+                    TrashClient(newClient);
+                    return;
+
+                }
+
+                var canHandleCommand = await CanCommandBeHandled(command, apiKeyMsg, gameId);
+                var validCommandMsg  = canHandleCommand ? "YES" : "NO";
+
+                Console.WriteLine("Command valid for game? " + validCommandMsg );
+                Console.WriteLine();
+
+                // Deny client for not being allowed to spectate/announce the game
+                if ( !canHandleCommand )
+                {
+                    TrashClient(newClient);
+                    return;
+                }
+
+                // Read and verify command for the game Validate user can do command
+                Guid userId = default(Guid);
+
+                // dont let console crash due to message not recevied as guid
+                try
+                {
+                    userId = new Guid(GetMessage(stream, 36));
+                }
+                catch (Exception ex)
+                {
+                    // todo: log this
+                    Console.WriteLine("FAILED TO PARSE USER GUID MSG!");
+                    TrashClient(newClient);
+                    return;
+
+                }
+
+                // set client to appropriate command
+                AddClient(command, newClient, gameId, userId);
             }
             
             // todo make this an object that is passed rather than prams
@@ -176,21 +169,17 @@ namespace TcpListenerTest
             {
                 if (command == "SPECTATE")
                 {
-                    lock (gameSpectators)
+                    lock (gameAnnouncers)
                     {
                         var newSpec = new Spectator(client, userId);
 
-                        if (gameSpectators.ContainsKey(gameId))
+                        if (gameAnnouncers.ContainsKey(gameId))
                         {
-                            var spectators = gameSpectators[gameId];
+                            var announcer = gameAnnouncers[gameId];
 
                             // remove lingering spectator, may need to do a proper reconnect
-                            spectators.RemoveWhere(spec => spec.userId == userId);
-                            spectators.Add(newSpec);
-                        }
-                        else
-                        {
-                            gameSpectators.Add(gameId, new HashSet<Spectator>(){ newSpec } );
+                            announcer.spectators.RemoveWhere(spec => spec.userId == userId);
+                            announcer.spectators.Add(newSpec);
                         }
 
                         Console.WriteLine("Added Spec!");
@@ -198,7 +187,18 @@ namespace TcpListenerTest
                 }
                 else if (command == "ANNOUNCE")
                 {
+                    lock (gameAnnouncers)
+                    {
+                        var newAnnouncer = new Announcer(client, userId);
+                        
+                        // Only add if game isn't being announced
+                        if (!gameAnnouncers.ContainsKey(gameId))
+                        {
+                            gameAnnouncers.Add(gameId, newAnnouncer);
+                        }
 
+                        Console.WriteLine("Added Announcer!");
+                    }
                 }
             }
 
@@ -284,22 +284,6 @@ namespace TcpListenerTest
                         Console.WriteLine("Waiting for client...");
                         var clientTask = listener.AcceptTcpClientAsync(); // Get the client  
 
-                        // 1. Accepting client
-                        //      - validate API key
-                        //      - determine the request (Spectate game or Announce game)
-                        //      - if announce
-                        //          - validate user can announce the game (creator of the game)
-                        //          - if can announce
-                        //              - if game id is not in dictionary also spin up a new game announce thread thread
-                        //              - wait for update loop
-                        //                  - push it to all clients spectating the game being announced
-                        //      - else if spectate
-                        //          - validate user can spectate the game
-                        //          - if can spectate
-                        //              - add to dictionairy
-                        //          - if game id is not dictionairy 
-                        //              - deny user game isn't being broadcasted
-
                         if (clientTask.Result != null)
                         {
                             // in here send off to a new thread to validate the connection to free up listening thread
@@ -317,11 +301,34 @@ namespace TcpListenerTest
             Guid userId;
             string publicKey;
             TcpClient client;
+            public HashSet<Spectator> spectators = new HashSet<Spectator>();
 
-            public Task AnnounceGameUpdate(string gameUpdate)
+            public Announcer(TcpClient newClient, Guid newUserGuid)
             {
-                int i = 0;
-                i = 1 + 1;
+                client = newClient;
+                userId = newUserGuid;
+
+                Thread handleAnnounce = new Thread(() => AnnounceGameUpdate());
+                handleAnnounce.Start(); // todo: store thread ?
+            }
+
+            public Task AnnounceGameUpdate()
+            { 
+                var lastMsg = string.Empty;
+
+                while (lastMsg != "-------END")
+                {
+                    var stream  = client.GetStream();
+                    lastMsg     = MessageReceive.GetMessage(stream, 10);
+
+                    Console.WriteLine("Message received: " + lastMsg);
+
+                    // todo use public key to decrypt
+                    foreach (var spectator in spectators)
+                    {
+                        //spectator.SendGameUpdate(lastMsg);
+                    }                  
+                }
 
                 Console.WriteLine("Task finished...");
                 return Task.FromResult(1);
@@ -343,12 +350,23 @@ namespace TcpListenerTest
                 this.userId = userGuid;
             }
 
+            public void TriggerGameUpdate(string gameUpdate)
+            {
+                Thread sendUpdate = new Thread(() => SendGameUpdate(gameUpdate));
+                sendUpdate.Start(); 
+            }
+        
+
             public Task SendGameUpdate(string gameUpdate)
             {
-                int i = 0;
-                i = 1 + 1;
+                using (var stream = client.GetStream())
+                {
+                    // todo: encrypt message
+                    var updateBytes = Encoding.ASCII.GetBytes(gameUpdate);
+                    stream.Write(updateBytes);
+                }
 
-                Console.WriteLine("Task finished...");
+                Console.WriteLine("Send game update finished...");
                 return Task.FromResult(1);
             }
 
