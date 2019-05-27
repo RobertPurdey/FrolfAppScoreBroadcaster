@@ -326,7 +326,7 @@ namespace TcpListenerTest
                     // todo use public key to decrypt
                     foreach (var spectator in spectators)
                     {
-                        //spectator.SendGameUpdate(lastMsg);
+                        spectator.SendGameUpdate(lastMsg);
                     }                  
                 }
 
@@ -359,12 +359,11 @@ namespace TcpListenerTest
 
             public Task SendGameUpdate(string gameUpdate)
             {
-                using (var stream = client.GetStream())
-                {
-                    // todo: encrypt message
-                    var updateBytes = Encoding.ASCII.GetBytes(gameUpdate);
-                    stream.Write(updateBytes);
-                }
+                var stream = client.GetStream();
+                // todo: encrypt message
+                var updateBytes = Encoding.ASCII.GetBytes(gameUpdate);
+
+                stream.Write(updateBytes);
 
                 Console.WriteLine("Send game update finished...");
                 return Task.FromResult(1);
