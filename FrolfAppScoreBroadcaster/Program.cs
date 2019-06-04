@@ -1,8 +1,6 @@
 ﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -10,7 +8,6 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web;
 
 namespace TcpListenerTest
 {
@@ -24,12 +21,6 @@ namespace TcpListenerTest
         static void Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-
-            // threads i need
-            //  - listening for connections
-            //  - accepting connections
-            //  - announcing game
-
 
             // Start the server  
             Thread listeningThread = new Thread(TcpHelper.StartServer);
@@ -173,6 +164,7 @@ namespace TcpListenerTest
                     {
                         var newSpec = new Spectator(client, userId);
 
+                        // only add if game being announced
                         if (gameAnnouncers.ContainsKey(gameId))
                         {
                             var announcer = gameAnnouncers[gameId];
@@ -180,9 +172,9 @@ namespace TcpListenerTest
                             // remove lingering spectator, may need to do a proper reconnect
                             announcer.spectators.RemoveWhere(spec => spec.userId == userId);
                             announcer.spectators.Add(newSpec);
-                        }
 
-                        Console.WriteLine("Added Spec!");
+                            Console.WriteLine("Added Spec!");
+                        }
                     }
                 }
                 else if (command == "ANNOUNCE")
@@ -191,13 +183,19 @@ namespace TcpListenerTest
                     {
                         var newAnnouncer = new Announcer(client, userId);
                         
-                        // Only add if game isn't being announced
+                        //Add if game isn't being announced
                         if (!gameAnnouncers.ContainsKey(gameId))
                         {
                             gameAnnouncers.Add(gameId, newAnnouncer);
+                            Console.WriteLine("Added Announcer!");
                         }
-
-                        Console.WriteLine("Added Announcer!");
+                        // todo: properly close down announcer
+                        else
+                        {
+                            gameAnnouncers.Remove(gameId);
+                            gameAnnouncers.Add(gameId, newAnnouncer);
+                            Console.WriteLine("Added Announcer!");
+                        }
                     }
                 }
             }
@@ -210,6 +208,7 @@ namespace TcpListenerTest
             // todo: need some sort of generic request class
             private static async Task<bool> CheckValidApiKey(string command, string token)
             {
+                // todo: read from file
                 var apiPath  = "http://192.168.1.101:53740/api/appusers/" + command;                
                 var isValid  = false;
 
@@ -230,6 +229,7 @@ namespace TcpListenerTest
 
             private static async Task<bool> CanCommandBeHandled(string command, string token, Guid gameId)
             {
+                // todo: read from file
                 var apiPath = "http://192.168.1.101:53740/api/games/" + gameId + "/" + command;
                 var isValid = false;
 
@@ -259,7 +259,9 @@ namespace TcpListenerTest
         {
             private static TcpListener listener { get; set; }
             private static bool accept { get; set; } = false;
+            // todo: read this from file
             private static string ipAddress = "192.168.1.101";
+
             public static void StartServer()
             {
                 IPAddress address = IPAddress.Parse(ipAddress);
@@ -277,7 +279,6 @@ namespace TcpListenerTest
             {
                 if (listener != null && accept)
                 {
-
                     // Continue listening.  
                     while (true)
                     {
@@ -286,7 +287,6 @@ namespace TcpListenerTest
 
                         if (clientTask.Result != null)
                         {
-                            // in here send off to a new thread to validate the connection to free up listening thread
                             Console.WriteLine("Client attempting to connect...");
                             Thread handleClient = new Thread(() => ClientValidator.ValidateClient(clientTask.Result));
                             handleClient.Start();
@@ -319,19 +319,45 @@ namespace TcpListenerTest
                 while (lastMsg != "-------END")
                 {
                     var stream  = client.GetStream();
-                    lastMsg     = MessageReceive.GetMessage(stream, 10);
+                    lastMsg     = GetMessage(stream, 7);
 
                     Console.WriteLine("Message received: " + lastMsg);
 
-                    // todo use public key to decrypt
+                    // read game update size
+                    var gameSizeMsg = lastMsg;
+                    var gameSize    = Convert.ToInt32(gameSizeMsg);
+
+                    Console.WriteLine("Game Update Size: " + gameSize + "B");
+                    Console.WriteLine();
+
+                    // read game update
+                    var gameUpdate = GetMessage(stream, gameSize);
+                    // todo: decrypt it
+
                     foreach (var spectator in spectators)
                     {
-                        spectator.SendGameUpdate(lastMsg);
-                    }                  
+                        spectator.SendGameUpdate(gameUpdate);
+                    }
                 }
 
                 Console.WriteLine("Task finished...");
                 return Task.FromResult(1);
+            }
+
+            private string GetMessage(NetworkStream stream, int size)
+            {
+                if (stream == null) throw new ArgumentNullException("stream");
+
+                var bytesRead = 0;
+                var message = new byte[size];
+
+                while (bytesRead < size)
+                {
+                    bytesRead += stream.Read(message, bytesRead, size - bytesRead);
+                }
+
+                var messageRecieved = Encoding.ASCII.GetString(message);
+                return messageRecieved;
             }
 
         }
@@ -361,8 +387,11 @@ namespace TcpListenerTest
             {
                 var stream = client.GetStream();
                 // todo: encrypt message
-                var updateBytes = Encoding.ASCII.GetBytes(gameUpdate);
+                var gameUpdateSize      = gameUpdate.Length.ToString().PadLeft(7, '0');
+                var gameUpdateSizeBytes = Encoding.ASCII.GetBytes(gameUpdateSize);
+                var updateBytes         = Encoding.ASCII.GetBytes(gameUpdate);
 
+                stream.Write(gameUpdateSizeBytes);
                 stream.Write(updateBytes);
 
                 Console.WriteLine("Send game update finished...");
