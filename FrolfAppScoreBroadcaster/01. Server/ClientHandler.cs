@@ -129,6 +129,7 @@ namespace FrolfAppScoreBroadcaster.Server
                     }
 
                     gameAnnouncers.Add(gameId, newAnnouncer);
+                    Console.WriteLine("Added Announcer!");
                 }
             }
         }

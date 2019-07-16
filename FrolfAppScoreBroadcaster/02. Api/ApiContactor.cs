@@ -12,7 +12,8 @@ namespace FrolfAppScoreBroadcaster._02._Api
 {
     public class ApiContactor
     {
-        public const string URL = "http://192.168.1.86:53740/api/";
+        public const string URL = "http://54.241.250.34/api/";
+        //public const string URL = "http://192.168.1.88:53740/api/";
 
         private static string BuildApiRoute(string path)
         {
