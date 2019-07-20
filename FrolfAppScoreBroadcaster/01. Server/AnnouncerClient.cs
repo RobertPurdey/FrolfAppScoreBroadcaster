@@ -14,14 +14,47 @@ namespace FrolfAppScoreBroadcaster._01._Server
         TcpClient client;
 
         public HashSet<SpectatorClient> spectators = new HashSet<SpectatorClient>();
+        private Thread handlerThread;
 
         public AnnouncerClient(TcpClient newClient, AppUserModel newAnnouncer)
         {
             client    = newClient;
             announcer = newAnnouncer;
 
-            Thread handleAnnounce = new Thread(() => AnnounceGameUpdate());
-            handleAnnounce.Start();
+            handlerThread = new Thread( () => AnnounceGameUpdate() );
+            handlerThread.Start();
+        }
+
+        public void Reconnect(TcpClient newClient)
+        {
+            client.GetStream().Close();
+            client.Close();
+
+            client = newClient;
+
+            RestartThread();
+        }
+
+        public void Disconnect()
+        {
+            client.GetStream().Close();
+            client.Close();
+
+            //DisconnectSpecs();
+        }
+
+        private void DisconnectSpecs()
+        {
+            foreach ( var spec in spectators )
+            {
+                spec.Disconnect();
+            }
+        }
+
+        private void RestartThread()
+        {
+            handlerThread = new Thread(() => AnnounceGameUpdate());
+            handlerThread.Start();
         }
 
         public Task AnnounceGameUpdate()
@@ -30,23 +63,31 @@ namespace FrolfAppScoreBroadcaster._01._Server
 
             while (lastMsg != "-------END")
             {
-                var stream = client.GetStream();
-                lastMsg    = Messages.GetMessage(stream, 8);
+                try
+                { 
+                    var stream = client.GetStream();
+                    lastMsg    = Messages.GetMessage(stream, 8);
 
-                // read game update size
-                var gameSizeMsg = lastMsg;
-                var gameSize    = Convert.ToInt32(gameSizeMsg);
+                    // read game update size
+                    var gameSizeMsg = lastMsg;
+                    var gameSize    = Convert.ToInt32(gameSizeMsg);
 
-                Console.WriteLine("Game Update Size: " + gameSize + "B");
-                Console.WriteLine();
+                    Console.WriteLine("Game Update Size: " + gameSize + "B");
+                    Console.WriteLine();
 
-                // read game update
-                var gameUpdate       = Messages.GetMessage(stream, gameSize);
-                var gameResultUpdate = ModelEncryptor.Decrypt<GameResultModel>(gameUpdate);
+                    // read game update
+                    var gameUpdate       = Messages.GetMessage(stream, gameSize);
+                    var gameResultUpdate = ModelEncryptor.Decrypt<GameResultModel>(gameUpdate);
 
-                foreach (var spectator in spectators)
+                    foreach (var spectator in spectators)
+                    {
+                        spectator.SendGameUpdate(gameResultUpdate);
+                    }
+                }
+                catch (Exception ex)
                 {
-                    spectator.SendGameUpdate(gameResultUpdate);
+                    Console.WriteLine("Announcer disconnected...");
+                    break;
                 }
             }
 

@@ -11,7 +11,7 @@ namespace FrolfAppScoreBroadcaster._01._Server
     public class SpectatorClient
     {
         public AppUserModel spectator;
-        TcpClient client;
+        private TcpClient client;
 
         public SpectatorClient() { }
 
@@ -23,29 +23,47 @@ namespace FrolfAppScoreBroadcaster._01._Server
 
         public void TriggerGameUpdate(GameResultModel gameUpdate)
         {
-            Thread sendUpdate = new Thread(() => SendGameUpdate(gameUpdate));
-            sendUpdate.Start();
+            Thread handlerThread = new Thread( () => SendGameUpdate(gameUpdate) );
+            handlerThread.Start();
         }
 
+        public void Reconnect(TcpClient newClient)
+        {
+            Disconnect();
+            client = newClient;
+        }
+
+        public void Disconnect()
+        {
+            client.GetStream().Close();
+            client.Close();
+        }
 
         public Task SendGameUpdate(GameResultModel gameUpdate)
         {
             var stream = client.GetStream();
 
-            // todo: encrypt message
-            //spectator.RsaPubXml
-            var encryptGameUpdate  = ModelEncryptor.Encrypt(spectator.RsaPubXml, gameUpdate);
-            var gameUpdateJson     = JsonConvert.SerializeObject(encryptGameUpdate);
+            try
+            { 
+                // todo: encrypt message
+                //spectator.RsaPubXml
+                var encryptGameUpdate  = ModelEncryptor.Encrypt(spectator.RsaPubXml, gameUpdate);
+                var gameUpdateJson     = JsonConvert.SerializeObject(encryptGameUpdate);
 
-            var gameUpdateSize      = gameUpdateJson.Length.ToString().PadLeft(8, '0');
-            var gameUpdateSizeBytes = Encoding.ASCII.GetBytes(gameUpdateSize);
+                var gameUpdateSize      = gameUpdateJson.Length.ToString().PadLeft(8, '0');
+                var gameUpdateSizeBytes = Encoding.ASCII.GetBytes(gameUpdateSize);
 
-            var updateBytes = Encoding.ASCII.GetBytes(gameUpdateJson);
+                var updateBytes = Encoding.ASCII.GetBytes(gameUpdateJson);
 
-            stream.Write(gameUpdateSizeBytes);
-            stream.Write(updateBytes);
+                stream.Write(gameUpdateSizeBytes);
+                stream.Write(updateBytes);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Spectator disconnected...");
+            }
 
-            Console.WriteLine("Send game update finished...");
+            Console.WriteLine("Game update sent...");
             return Task.FromResult(1);
         }
 

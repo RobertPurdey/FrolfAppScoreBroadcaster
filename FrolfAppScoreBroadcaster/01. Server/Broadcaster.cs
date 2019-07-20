@@ -46,14 +46,26 @@ namespace FrolfAppScoreBroadcaster._01._Server
                 // Continue listening.  
                 while (true)
                 {
-                    Console.WriteLine("Waiting for client...");
-                    var clientTask = listener.AcceptTcpClientAsync(); // Get the client  
+                    try
+                    { 
+                        Console.WriteLine("Waiting for client...");
+                        var clientTask = listener.AcceptTcpClientAsync(); // Get the client  
 
-                    if (clientTask.Result != null)
+                        if (clientTask.Result != null)
+                        {
+                            Console.WriteLine("Client attempting to connect...");
+                            Thread handleClient = new Thread(() => ClientHandler.Handle(clientTask.Result));
+                            handleClient.Start();
+                        }
+                    }
+                    catch (Exception ex)
                     {
-                        Console.WriteLine("Client attempting to connect...");
-                        Thread handleClient = new Thread(() => ClientHandler.Handle(clientTask.Result));
-                        handleClient.Start();
+                        Console.WriteLine("==================================================================================");
+                        Console.WriteLine("-----------");
+                        Console.WriteLine("-- ERROR --");
+                        Console.WriteLine("-----------");
+                        Console.WriteLine(ex.Message);
+                        Console.WriteLine("==================================================================================");
                     }
                 }
             }

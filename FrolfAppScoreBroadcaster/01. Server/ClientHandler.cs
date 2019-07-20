@@ -4,6 +4,7 @@ using FrolfAppScoreBroadcaster._02._Api.Models;
 using FrolfAppScoreBroadcaster._03._Communication;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 
@@ -18,30 +19,40 @@ namespace FrolfAppScoreBroadcaster.Server
         {
             var stream = client.GetStream();
     
-            var clientRequestMsg        = ReadClientRequestMsg(stream);
-            var clientRequest           = DecryptClientRequest(clientRequestMsg);
-            var encryptRequesterInfo    = await GetRequesterUserInfo(clientRequest.Token);
+            try
+            { 
+                var clientRequestMsg        = ReadClientRequestMsg(stream);
+                var clientRequest           = DecryptClientRequest(clientRequestMsg);
+                var encryptRequesterInfo    = await GetRequesterUserInfo(clientRequest.Token);
 
-            if (encryptRequesterInfo == null )
-            {
-                TrashClient(client);
+                if (encryptRequesterInfo == null )
+                {
+                    Console.WriteLine("Failed to get user info from API server...");
+                    TrashClient(client);
+                }
+
+                var requesterInfo = DecryptRequesterUserInfo(encryptRequesterInfo);
+
+                var isValid = IsCommandValid(clientRequest.Command);
+                if ( !isValid )
+                {
+                    Console.WriteLine($"The command {clientRequest.Command} is invalid...");
+                    TrashClient(client);                
+                }
+
+                var canHandle = await HandleCommand(clientRequest);
+                if ( !canHandle )
+                {
+                    Console.WriteLine($"The command {clientRequest.Command} has been denied...");
+                    TrashClient(client);
+                }
+
+                AddClient(clientRequest, requesterInfo, client);
             }
-
-            var requesterInfo = DecryptRequesterUserInfo(encryptRequesterInfo);
-
-            var isValid = IsCommandValid(clientRequest.Command);
-            if ( !isValid )
+            catch (Exception ex)
             {
-                TrashClient(client);
+                Console.WriteLine($"client failed to connect...");
             }
-
-            var canHandle = await HandleCommand(clientRequest);
-            if ( !canHandle )
-            {
-                TrashClient(client);
-            }
-
-            AddClient(clientRequest, requesterInfo, client);
 
             return Task.FromResult(1);
         }
@@ -50,9 +61,6 @@ namespace FrolfAppScoreBroadcaster.Server
         {
             var clientRequestSizeMsg = Messages.GetMessage(netStream, 4);
             var clientRequestSize    = Convert.ToInt32(clientRequestSizeMsg);
-
-            Console.WriteLine("Token Size: " + clientRequestSize + "B");
-            Console.WriteLine();
 
             // read encrypted request
             var clientRequest = Messages.GetMessage(netStream, clientRequestSize);
@@ -64,8 +72,7 @@ namespace FrolfAppScoreBroadcaster.Server
         {
             var clientRequestDecyrpted = ModelEncryptor.Decrypt<ClientRequestModel>(clientRequest);
 
-            Console.WriteLine("Client request received");
-            Console.WriteLine();
+            Console.WriteLine("Client request received...");
 
             return clientRequestDecyrpted;
         }
@@ -108,12 +115,20 @@ namespace FrolfAppScoreBroadcaster.Server
                     if ( gameAnnouncers.ContainsKey(gameId) )
                     {
                         var announcer = gameAnnouncers[gameId];
+                        var spectator = announcer.spectators
+                            .Where(s => s.spectator.IdKey == requesterUserInfo.IdKey)
+                            .SingleOrDefault();
 
-                        // remove lingering spectator
-                        announcer.spectators.RemoveWhere(spec => spec.spectator.IdKey == requesterUserInfo.IdKey);
-                        announcer.spectators.Add(newSpec);
-
-                        Console.WriteLine("Added Spec!");
+                        if ( spectator != null )
+                        {
+                            spectator.Reconnect(client);
+                            Console.WriteLine("Spectator reconnected...");
+                        }
+                        else   
+                        {
+                            announcer.spectators.Add(newSpec);
+                            Console.WriteLine("Spectator connected...");
+                        }
                     }
                 }
             }
@@ -121,15 +136,18 @@ namespace FrolfAppScoreBroadcaster.Server
             {
                 lock (gameAnnouncers)
                 {
-                    var newAnnouncer = new AnnouncerClient(client, requesterUserInfo);
-
                     if ( gameAnnouncers.ContainsKey(gameId) )
                     {
-                        gameAnnouncers.Remove(gameId);
+                        gameAnnouncers[gameId].Reconnect(client);
+                        Console.WriteLine("Announcer reconnected...");
                     }
+                    else
+                    {
+                        var newAnnouncer = new AnnouncerClient(client, requesterUserInfo);
 
-                    gameAnnouncers.Add(gameId, newAnnouncer);
-                    Console.WriteLine("Added Announcer!");
+                        gameAnnouncers.Add(gameId, newAnnouncer);
+                        Console.WriteLine("Announcer connected...");
+                    }
                 }
             }
         }
@@ -138,6 +156,8 @@ namespace FrolfAppScoreBroadcaster.Server
         {
             client.GetStream().Close();
             client.Close();
+
+            throw new Exception("Client Trashed");
         }
     }
 }
