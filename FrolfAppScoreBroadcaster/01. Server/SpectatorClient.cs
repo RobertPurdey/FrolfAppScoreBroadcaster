@@ -45,8 +45,6 @@ namespace FrolfAppScoreBroadcaster._01._Server
 
             try
             { 
-                // todo: encrypt message
-                //spectator.RsaPubXml
                 var encryptGameUpdate  = ModelEncryptor.Encrypt(spectator.RsaPubXml, gameUpdate);
                 var gameUpdateJson     = JsonConvert.SerializeObject(encryptGameUpdate);
 

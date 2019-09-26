@@ -105,10 +105,12 @@ namespace FrolfAppScoreBroadcaster.Server
         {
             var gameId = request.GameId;
 
-            if (request.Command == "SPECTATE")
-            {
-                lock (gameAnnouncers)
+            lock (gameAnnouncers)
+            { 
+                if (request.Command == "SPECTATE")
                 {
+                    //lock (gameAnnouncers)
+                    //{
                     var newSpec = new SpectatorClient(client, requesterUserInfo);
 
                     // only add if game being announced
@@ -130,12 +132,12 @@ namespace FrolfAppScoreBroadcaster.Server
                             Console.WriteLine("Spectator connected...");
                         }
                     }
+                    //}
                 }
-            }
-            else if (request.Command == "ANNOUNCE")
-            {
-                lock (gameAnnouncers)
+                else if (request.Command == "ANNOUNCE")
                 {
+                    //lock (gameAnnouncers)
+                    //{
                     if ( gameAnnouncers.ContainsKey(gameId) )
                     {
                         gameAnnouncers[gameId].Reconnect(client);
@@ -148,6 +150,7 @@ namespace FrolfAppScoreBroadcaster.Server
                         gameAnnouncers.Add(gameId, newAnnouncer);
                         Console.WriteLine("Announcer connected...");
                     }
+                    //}
                 }
             }
         }

@@ -81,7 +81,7 @@ namespace FrolfAppScoreBroadcaster._01._Server
 
                     foreach (var spectator in spectators)
                     {
-                        spectator.SendGameUpdate(gameResultUpdate);
+                        spectator.TriggerGameUpdate(gameResultUpdate);
                     }
                 }
                 catch (Exception ex)
